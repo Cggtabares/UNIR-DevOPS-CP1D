@@ -1,0 +1,93 @@
+pipeline{
+    agent any
+    
+    stages{
+        
+        stage('Get Code'){
+            steps{
+                cleanWs()
+                //Obtener codigo del repo de la rama develop
+                git branch: "develop", url: 'https://github.com/Cggtabares/UNIR-DevOPS-CP1D.git'
+                
+                
+            }
+            
+        }
+        
+        stage('Statics Test'){
+            parallel{
+                stage('flake8'){
+                    steps{
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'Failure'){
+                            sh '''
+                                flake8 --exit-zero --format=pylint src > flake8.out
+                            '''
+                            recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')], qualityGates: [[threshold:8, type:'TOTAL', unstable: true],[threshold: 10, type: 'TOTAL', unstable:false]]
+                        }
+                    }
+                }
+                    
+                stage('bandit'){
+                    steps{
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'Failure'){
+                            sh '''
+                                bandit --exit-zero -r . -f custom -o bandit.out --severity-level medium --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                            '''
+                            recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], qualityGates: [[threshold: 2, type: 'TOTAL', unstable:true],[threshlod: 4, type: 'TOTAL', unstable: false]]
+                        }
+                    }
+                }
+            }
+        }
+            
+        stage('Deploy') {
+            steps {
+                sh '''
+                    sam build
+                    
+                    sam deploy --force-upload --no-confirm-changeset --no-fail-on-empty-changeset --stack-name todo-list-aws-staging --config-env staging --resolve-s3
+                
+                '''
+            }
+        }
+        
+        stage('Rest') {
+            environment {
+                BASE_URL = """${sh(
+                        returnStdout: true,
+                        script: 'sam list endpoints --stack-name todo-list-aws-staging --region us-east-1 --output json | jq -r \'.[] | select(.LogicalResourceId=="ServerlessRestApi").CloudEndpoint | .[0]\' | tr -d \'\n\t\''
+                    )}""" 
+            }
+            steps {
+                sh '''
+                    set PYTHONPATH = ${WORKSPACE}
+                    pytest --junitxml=result-rest.xml test/integration/todoApiTest.py
+                '''
+            }
+        }
+        
+        stage('Promote'){
+            steps{
+                sh'''
+                git remote set-url origin https://x-access-token:$GIT_ACCESS_TOKEN@github.com/Cggtabares/UNIR-DevOPS-CP1D.git
+                git checkout master
+                git merge develop
+                git push origin master
+                '''
+            }
+        }
+                
+    }
+    post {
+        // Clean after build
+        always {
+            cleanWs(cleanWhenNotBuilt: false,
+                    deleteDirs: true,
+                    disableDeferredWipeout: true,
+                    notFailBuild: true,
+                    patterns: [[pattern: '.gitignore', type: 'INCLUDE'],
+                               [pattern: '.propsfile', type: 'EXCLUDE']])
+        }
+    }
+}  
+    
