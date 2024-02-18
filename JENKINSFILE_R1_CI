@@ -8,7 +8,7 @@ pipeline{
                 cleanWs()
                 //Obtener codigo del repo de la rama develop
                 git branch: "develop", url: 'https://github.com/Cggtabares/UNIR-DevOPS-CP1D.git'
-                
+                //trigger CI-1
                 
             }
             
