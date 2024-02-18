@@ -69,7 +69,7 @@ pipeline{
         stage('Promote'){
             steps{
                 sh'''
-                git remote set-url origin https://x-access-token:$GIT_ACCESS_TOKEN@github.com/carlosggtabares/UNIR-DevOPS-CP1D.git
+                git remote set-url origin https://x-access-token:$GIT_ACCESS_TOKEN@github.com/Cggtabares/UNIR-DevOPS-CP1D.git
                 git checkout master
                 git merge develop
                 git push origin master
