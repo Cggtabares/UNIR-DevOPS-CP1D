@@ -1,0 +1,57 @@
+pipeline{
+    agent any
+    
+    stages{
+        stage('Get Code'){
+            steps{
+                //Limpiar el directorio de trabajo de Jenkins
+                cleanWs()
+                git branch: "master", url: 'https://github.com/Cggtabares/UNIR-DevOPS-CP1D.git'
+            }
+        }
+        
+        stage('Deploy'){
+            steps{
+                sh '''
+                    sam build
+                    
+                    sam deploy --force-upload --no-confirm-changeset --no-fail-on-empty-changeset --stack-name todo-list-aws-production --config-env production --resolve-s3
+                
+                '''
+            }
+        }
+        
+        stage('Rest') {
+            environment {
+                BASE_URL = """${sh(
+                        returnStdout: true,
+                        script: 'sam list endpoints --stack-name todo-list-aws-production --region us-east-1 --output json | jq -r \'.[] | select(.LogicalResourceId=="ServerlessRestApi").CloudEndpoint | .[0]\' | tr -d \'\n\t\''
+                    )}""" 
+            }
+            steps {
+                sh '''
+                    echo $BASE_URL
+                    set PYTHONPATH = ${WORKSPACE}
+                    pytest --junitxml=result-rest-production.xml -k "not deletetodo and not updatetodo and not addtodo" -s test/integration/todoApiTest.py
+                '''
+                junit 'result-rest-production.xml'
+            }
+        }
+        
+        
+        
+    }
+    
+    post {
+        // Clean after build
+        always {
+            cleanWs(cleanWhenNotBuilt: false,
+                    deleteDirs: true,
+                    disableDeferredWipeout: true,
+                    notFailBuild: true,
+                    patterns: [[pattern: '.gitignore', type: 'INCLUDE'],
+                               [pattern: '.propsfile', type: 'EXCLUDE']])
+        }
+    }
+    
+}
