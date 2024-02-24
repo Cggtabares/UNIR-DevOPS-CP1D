@@ -1,0 +1,80 @@
+pipeline{
+    agent none
+    
+    stages{
+        
+        stage('Get Code'){
+            agent{label 'Main'}
+            steps{
+                //Limpiar el directorio de trabajo de Jenkins
+                cleanWs()
+                sh '''
+                    echo 'Jenkins-Main'
+                    dig +short myip.opendns.com @resolver1.opendns.com
+                    whoami
+                    hostname
+                    echo 'WORKSPACE'
+                    echo ${WORKSPACE}
+                '''
+                git branch: "master", url: 'https://github.com/Cggtabares/UNIR-DevOPS-CP1D.git'
+                stash name:'code', includes:'**'
+            }
+        }
+        
+        stage('Deploy'){
+            agent{label 'Main'}
+            steps{
+                unstash name: 'code'
+                sh '''
+                    echo 'Jenkins-Main'
+                    dig +short myip.opendns.com @resolver1.opendns.com
+                    whoami
+                    hostname
+                    echo 'WORKSPACE'
+                    echo ${WORKSPACE}
+                    sam build
+                    sam deploy --force-upload --no-confirm-changeset --no-fail-on-empty-changeset --stack-name todo-list-aws-production --config-env production --resolve-s3
+                    sam list endpoints --stack-name todo-list-aws-production --region us-east-1 --output json | grep https | head -n 1 | sed 's/\"//g; s/,//g' | tr -d '[:space:]' > BASE_URL.txt
+                '''
+                stash includes: 'BASE_URL.txt', name: 'BASE_URL'
+            }
+        }
+        
+        stage('Rest') {
+            agent{label 'agent2'}
+            steps {
+                unstash name: 'code'
+                unstash name: 'BASE_URL'
+                sh '''
+                echo 'Jenkins-Main'
+                    dig +short myip.opendns.com @resolver1.opendns.com
+                    whoami
+                    hostname
+                    echo 'WORKSPACE'
+                    echo ${WORKSPACE}
+                    export BASE_URL=$(cat BASE_URL.txt)
+                    
+                    pytest --junitxml=result-rest-production.xml -s ${WORKSPACE}/test/integration/todoApiTestProd.py
+                '''
+                junit 'result-rest-production.xml'
+            }
+        }
+    }
+    
+    
+        post {
+        // Clean after build
+        always {
+            node('Main'){
+                cleanWs(cleanWhenNotBuilt: false,
+                    deleteDirs: true,
+                    disableDeferredWipeout: true,
+                    notFailBuild: true,
+                    patterns: [[pattern: '.gitignore', type: 'INCLUDE'],
+                               [pattern: '.propsfile', type: 'EXCLUDE']])  
+                
+            }
+        }
+        }
+    
+}
